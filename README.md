@@ -12,5 +12,5 @@ flag unusual voxels:
   
 determine pathology:
   1. count contigous unusual voxels
-  2. if count is larger than sensitivity value then pathology or artifact exists
+  2. if count is larger than sensitivity value then pathology or artifact might exist
   
