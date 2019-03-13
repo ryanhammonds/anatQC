@@ -162,21 +162,9 @@ if [[ -z $SLURM && -z $NCPUS ]]; then
 	for image in ${anatPATHS[@]}; do
 		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
 		$FSLDIR/bin/bet $image -R
-		$FSLDIR/bin/flirt -in $image -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear
+		$FSLDIR/bin/flirt -in "$image"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear
 		$FSLDIR/bin/fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10	
 	done
-# OpenMP
-elif [[ -n $NCPUS && -z $SLURM ]]; then
-	for image in ${anatPATHS[@]}; do
-		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
-		echo "$FSLDIR/bin/bet $image -R" >> $OUTPUT/runBet 
-		echo "$FSLDIR/bin/flirt -in $image -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear" >> $OUTPUT/scripts/runFLIRT
-		echo "fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10" >> $OUTPUT/scripts/runFNIRT	
-	done
-	baseDIR=$(echo $0 | sed "s#/.*#/#")
-	cat $OUTPUT/scripts/runBET | $baseDIR/parallel -j $NCPUS
-	cat $OUTPUT/scripts/runFLIRT | $baseDIR/parallel -j $NCPUS
-	cat $OUTPUT/scripts/runFNIRT | $baseDIR/parallel -j $NCPUS
 # SLURM
 elif [[ -n $SLURM && -z $NCPUS ]]; then
 	echo '#!/bin/bash'										>  $OUTPUT/scripts/slurmBET.sh
@@ -195,7 +183,7 @@ elif [[ -n $SLURM && -z $NCPUS ]]; then
 	cat $OUTPUT/scripts/slurmBET.sh | head -n 7				> $OUTPUT/scripts/slurmFLIRT.sh
 	for image in ${anatPATHS[@]}; do
 		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
-		echo "srun -N 1 -n 1 $FSLDIR/bin/flirt -in $image -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear" >> $OUTPUT/scripts/slurmFLIRT.sh 
+		echo "srun -N 1 -n 1 $FSLDIR/bin/flirt -in "$image"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear" >> $OUTPUT/scripts/slurmFLIRT.sh 
 		echo "wait"											>> $OUTPUT/scripts/slurmFLIRT.sh
 	done
 	sbatch $OUTPUT/scripts/slurmFLIRT.sh
@@ -208,6 +196,19 @@ elif [[ -n $SLURM && -z $NCPUS ]]; then
 	done
 	sbatch $OUTPUT/scripts/slurmFNIRT.sh
 fi
+# GNU Parallel
+elif [[ -n $NCPUS && -z $SLURM ]]; then
+	for image in ${anatPATHS[@]}; do
+		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
+		echo "$FSLDIR/bin/bet $image -R" >> $OUTPUT/runBet 
+		echo "$FSLDIR/bin/flirt -in "$image"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear" >> $OUTPUT/scripts/runFLIRT
+		echo "fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10" >> $OUTPUT/scripts/runFNIRT	
+	done
+	baseDIR=$(echo $0 | sed "s#/.*#/#")
+	cat $OUTPUT/scripts/runBET | $baseDIR/parallel -j $NCPUS
+	cat $OUTPUT/scripts/runFLIRT | $baseDIR/parallel -j $NCPUS
+	cat $OUTPUT/scripts/runFNIRT | $baseDIR/parallel -j $NCPUS
+
 wait
 
 ## Call python script here ##
