@@ -166,7 +166,7 @@ if [[ -z $SLURM && -z $NCPUS ]]; then
 		$FSLDIR/bin/fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10	
 	done
 # SLURM
-elif [[ -n $SLURM && -z $NCPUS ]]; then
+elif [[ -n $SLURM ]]; then
 	echo '#!/bin/bash'										>  $OUTPUT/scripts/slurmBET.sh
 	echo \#SBATCH --partition="$PART"		 				>> $OUTPUT/scripts/slurmBET.sh
 	echo \#SBATCH --nodes="$NODES" 							>> $OUTPUT/scripts/slurmBET.sh
