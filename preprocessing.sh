@@ -195,7 +195,6 @@ elif [[ -n $SLURM ]]; then
 		echo "wait"											>> $OUTPUT/scripts/slurmFNIRT.sh
 	done
 	sbatch $OUTPUT/scripts/slurmFNIRT.sh
-fi
 # GNU Parallel
 elif [[ -n $NCPUS && -z $SLURM ]]; then
 	for image in ${anatPATHS[@]}; do
@@ -208,7 +207,7 @@ elif [[ -n $NCPUS && -z $SLURM ]]; then
 	cat $OUTPUT/scripts/runBET | $baseDIR/parallel -j $NCPUS
 	cat $OUTPUT/scripts/runFLIRT | $baseDIR/parallel -j $NCPUS
 	cat $OUTPUT/scripts/runFNIRT | $baseDIR/parallel -j $NCPUS
-
+fi
 wait
 
 ## Call python script here ##
