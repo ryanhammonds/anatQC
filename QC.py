@@ -7,7 +7,6 @@ import time
 import numpy as np
 import nibabel as nib
 from scipy.ndimage import center_of_mass
-from scipy.ndimage import label
 
 # gets nifti as input
 input_img=sys.argv[1]
@@ -77,25 +76,6 @@ def checkContig(pt, flagList, clustList):
 	return clustList
 
 
-def checkBoundary(cluster):
-	# Checks if cluster is a ring around brain boundary
-	boundary_thresh = len(cluster) * 2
-	boundary_zeros = []
-	for voxel in cluster:
-		x = voxel[0]
-		y = voxel[1]
-		z = voxel[2]	
-		points = [[x,y,z-1], [x+1,y,z-1], [x+1,y+1,z-1], [x+1,y-1,z-1], [x-1,y,z-1], [x-1,y+1,z-1], [x-1,y-1,z-1], [x,y+1,z-1], [x,y-1,z-1], [x,y,z+1], [x+1,y,z+1], [x+1,y+1,z+1], [x+1,y-1,z+1], [x-1,y,z+1], [x-1,y+1,z+1], [x-1,y-1,z+1], [x,y+1,z+1], [x,y-1,z+1], [x,y-1,z], [x+1,y-1,z], [x+1,y-1,z+1], [x+1,y-1,z-1], [x-1,y-1,z], [x-1,y-1,z+1], [x-1,y-1,z-1], [x,y-1,z+1], [x,y-1,z-1], [x,y+1,z], [x+1,y+1,z], [x+1,y+1,z+1], [x+1,y+1,z-1], [x-1,y+1,z], [x-1,y+1,z+1], [x-1,y+1,z-1], [x,y+1,z+1], [x,y+1,z-1], [x-1,y,z], [x-1,y+1,z], [x-1,x+1,z+1], [x-1,y+1,z-1], [x-1,y-1,z], [x-1,y-1,z+1], [x-1,y-1,z-1], [x-1,y,z+1], [x-1,y,z-1], [x+1,y,z], [x+1,y+1,z], [x+1,y+1,z+1], [x+1,y+1,z-1], [x+1,y-1,z], [x+1,y-1,z+1], [x+1,y-1,z-1], [x+1,y,z+1], [x+1,y,z-1]]	
-		for adjacent_voxel in points:
-			if img_data[adjacent_voxel[0]][adjacent_voxel[1]][adjacent_voxel[2]] == 0:
-				boundary_zeros.append(0)
-				if len(boundary_zeros) > boundary_thresh:
-					return False
-					break
-				else:
-					return True		
-
-
 # flag clusters
 clusters = []
 for xyz in flagList:
@@ -107,7 +87,6 @@ for xyz in flagList:
 cleaned_clusters = []
 for cluster in clusters:
 	if len(cluster) > clust_size:
-		#if checkBoundary(cluster):
 		cleaned_clusters.append(cluster)
 
 
@@ -130,25 +109,6 @@ for cluster_idx in range(0, len(cleaned_clusters)):
 	list(center)	
 	center = [int(round(dist)) for dist in center]
 	centers.append(center)
-	
-'''
-# calculate center of mass for each cluster
-if len(cleaned_clusters) > 1:
-	clust_len = [val for val in range(1,len(cleaned_clusters)+1)]
-	lbl = label(mask)[0]
-	centers = center_of_mass(mask, lbl, clust_len)
-	for centerIdx, center in enumerate(centers):
-		list(center)
-		if np.nan in center:
-			centers[centerIdx] = str('NaN')
-		else:
-			center_ints = [int(round(dist)) for dist in center]
-			centers[centerIdx] = center_ints		
-else:
-	centers = center_of_masss(mask)
-	list(centers)	
-	enters = [int(round(dist)) for dist in centers]
-'''
 
 out_img = nib.Nifti1Image(mask4D, img.affine, img.header)
 out_dir = re.sub("native2std.*", "", input_img)

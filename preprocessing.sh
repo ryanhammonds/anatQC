@@ -13,8 +13,8 @@ usage() {
   cat << EOF >&2
 
 Authors:
-Evan Kersey
 Ryan Hammonds
+Evan Kersey
 
 Automated pathology detection in T1 weighted anatomical images.
 
@@ -31,20 +31,16 @@ Required Arguments:
     
 Optional Arguments:
 	-c, --cluster	<int>			Cluster size required for detection. 
-						Default 10 contiguous voxels. 
-	
-	-s, --seg	<path/to/seg.nii>	Anatomical segmentation mask used to search signal dropout region by region. 
-						Default: Harvard-Oxford Cortical and Subcortical Atlas
+						Default 50 contiguous voxels. 
 
-	-nc, --n-cpus	<int>			Number of CPUs to run processing in parallel. Ignored is --slurm is used.
+	-nc, --n-cpus	<int>			Number of CPUs to run processing in parallel. Ignored if --slurm is used. Use --ntasks instead.
 
 	-sl, --slurm				For use on SLURM cluster. If used, REQUIRES:
 						--partition
 						--nodes				
-						--ntasks			
+						--ntasks-per-node	<int>		Max number of subjects/images to run on each nodes.			
 						--time	<hr:min:sec>
-						Note: ntasks = number sujects
-						Note: May have to modify code if n subjs > (CPUs/Node x nNodes)
+						--subjs
 
 EOF
 exit 1
@@ -52,12 +48,16 @@ exit 1
 
 error() {
   if [[ $REQ == ERROR ]]; then 
-	echo -e "\nERROR: Missing required arguments."
+    echo -e "\nMissing required arguments."
   elif [[ SLURM_ERROR = 1 ]]; then
-  	echo -e "\nError: Missing required slurm arguments."
+    echo -e "\nMissing required slurm arguments."
   fi
-  
-  echo 'See --help'
+
+  if [[ $NON_ARG == ERROR ]]; then
+    echo -e "\nUnrecognized argument: $NON_ARG_VAL"
+  fi
+
+  echo -e 'See --help\n'
   exit 1
 }
 
@@ -69,51 +69,55 @@ case $key in
 	usage
 	;;
 	-i|--input)
-    	BIDS="$2"
+    	BIDS=$2
     	shift; shift 
     	;;
   	-o|--output)
-    	OUTPUT="$2"
+    	OUTPUT=$2
     	shift; shift 
     	;;
 	-t|--thr)
-    	THR="$2"
+    	THR=$2
     	shift; shift
 		;;
 	-c|--cluster)
-		CLUSTER="$2"
-		shift; shift
-		;;
-	-s|--seg)
-		SEG="$2"
+		CLUSTER=$2
 		shift; shift
 		;;
 	-nc|--ncpus)
-		NCPUS="$2"
+		NCPUS=$2
 		shift; shift
 		;;
 	-sl|--slurm)
 		SLURM=1
-		shift;
+		shift
 		;;
 	--partition)
-		PART="$2"
+		PART=$2
 		shift; shift
 		;;
 	--nodes)
-		NODES="$2"
+		NODES=$2
 		shift; shift
 		;;
-	--ntasks)
-		NTASKS="$2"
+	--ntasks-per-node)
+		NTASKS=$2
 		shift; shift
 		;;
 	--time)
-		TIME="$2"
+		TIME=$2
 		shift; shift
-		;; 
+		;;
+	-*|--*)
+		NON_ARG=ERROR
+		NON_ARG_VAL=$2
+		error
+		;;
+	*)
+		break
 esac
 done
+
 
 # Checks if required arg are missing
 [[ -z $BIDS ]] 	&& REQ=ERROR
@@ -124,94 +128,147 @@ done
 # Checks SLURM and its arguments
 if [[ -n $SLURM ]]; then
 	if [[ -z $PART ]]; then
-		SLURM_ERROR = 1 && error
+		SLURM_ERROR=1 && error
 	elif [[ -z $NODES ]]; then
-		SLURM_ERROR = 1 && error
+		SLURM_ERROR=1 && error
 	elif [[ -z $NTASKS ]]; then
-		SLURM_ERROR = 1 && error
+		SLURM_ERROR=1 && error
 	elif [[ -z $TIME ]]; then
-		SLURM_ERROR = 1 && error
+		SLURM_ERROR=1 && error
 	fi
 fi
 
 # Sets default args if none are specified
-if [[ -z $CLUSTER ]] && CLUSTER=5
-if [[ -z $SEG ]] && SEG=$FSLDIR/data/atlases/HarvardOxford/HarvardOxford-cort-maxprob-thr50-2mm.nii.gz
-
+[[ -z $CLUSTER ]] && CLUSTER=50
 
 # Makes subj folders in output dir
 for i in $BIDS/sub*; do 
 	subj=$(echo $i | sed "s#.*/##")
-	mkdir $OUTPUT/$subj
+	[[ ! -d $OUTPUT/$subj ]] && mkdir $OUTPUT/$subj
 done
 
-mkdir $OUTPUT/scripts
+[[ ! -d $OUTPUT/scripts ]] && mkdir $OUTPUT/scripts
 
 # Checks for multi or single session BIDS and stores anatomical paths
 anatPATHS=()
-firstSubj=$(ls -1 $BIDS | head -n 1)
+firstSubj=$(ls -1 $BIDS | grep -e "^sub.*" | head -n 1)
 if [[ -d $BIDS/$firstSubj/ses-01 ]]; then
 	anatPATHS+=(`find $BIDS/sub*/ses-*/anat/*_T1w.nii`)
 else
 	anatPATHS+=(`find $BIDS/sub*/anat/*_T1w.nii`)
 fi
 
+# Bash doesn't support array export, so save to text file to read into sbatch script.
+[[ -f $OUTPUT/scripts/$image/image_paths.txt ]] && rm $OUTPUT/scripts/$image/image_paths.txt
+for image in ${anatPATHS[@]}; do
+	echo $image	>> $OUTPUT/scripts/image_paths.txt
+done
+
+# Need this for masks paths
+baseDir=$(echo $0 | sed "s/\/preprocessing.sh//")
+export baseDir
+
 ## Runs BET, FLIRT, FNIRT ##
 # Serial
 if [[ -z $SLURM && -z $NCPUS ]]; then
 	for image in ${anatPATHS[@]}; do
 		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
-		$FSLDIR/bin/bet $image -R
-		$FSLDIR/bin/flirt -in "$image"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear
-		$FSLDIR/bin/fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10	
-	done
+		T1w=$(echo $image | sed "s/.*sub/sub/" | sed "s/\.nii//g")
+		$FSLDIR/bin/bet $image $OUTPUT/$subj/"$T1w"_brain -R	
+		$FSLDIR/bin/flirt -in $OUTPUT/$subj/"$T1w"_brain -ref $FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz -out $OUTPUT/$subj/native2std -omat $OUTPUT/$subj/native2std.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear &	
+		
+		# Transform standard space masks into linear MNI space.		
+		$FSLDIR/bin/convert_xfm -omat $OUTPUT/$subj/native2std_inv.mat -inverse $OUTPUT/$subj/native2std.mat
+		$FSLDIR/bin/flirt -in $baseDir/masks/mask.nii.gz -ref $T1w -out $OUTPUT/$subj/mask_native -applyxfm -init $OUTPUT/$subj/native2std_inv.mat
+		$FSLDIR/bin/fslmaths $OUTPUT/$subj/mask_native.nii.gz -bin $OUTPUT/$subj/mask_native.nii.gz
+		$FSLDIR/bin/fslmaths $OUTPUT/$subj/native2std.nii.gz -mas $OUTPUT/$subj/mask_native $OUTPUT/$subj/native2std_masked
+		done
 # SLURM
 elif [[ -n $SLURM ]]; then
-	echo '#!/bin/bash'										>  $OUTPUT/scripts/slurmBET.sh
-	echo \#SBATCH --partition="$PART"		 				>> $OUTPUT/scripts/slurmBET.sh
-	echo \#SBATCH --nodes="$NODES" 							>> $OUTPUT/scripts/slurmBET.sh
-	echo \#SBATCH --ntasks=$NTASKS							>> $OUTPUT/scripts/slurmBET.sh
-	echo \#SBATCH --cpus-per-task=1			 				>> $OUTPUT/scripts/slurmBET.sh
-	echo \#SBATCH --time="$TIME"							>> $OUTPUT/scripts/slurmBET.sh
-	echo -e "\n"											>> $OUTPUT/scripts/slurmBET.sh
-	for image in ${anatPATHS[@]}; do
-		echo "srun -N 1 -n 1 $FSLDIR/bin/bet $image -R" 	>> $OUTPUT/scripts/slurmBET.sh 
-	done
-	echo 'wait'												>> $OUTPUT/scripts/slurmBET.sh	
-	sbatch $OUTPUT/scripts/slurmBET.sh
-	#FLIRT
-	cat $OUTPUT/scripts/slurmBET.sh | head -n 7				> $OUTPUT/scripts/slurmFLIRT.sh
-	for image in ${anatPATHS[@]}; do
-		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
-		echo "srun -N 1 -n 1 $FSLDIR/bin/flirt -in "$image"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear" >> $OUTPUT/scripts/slurmFLIRT.sh 
-		echo "wait"											>> $OUTPUT/scripts/slurmFLIRT.sh
-	done
-	sbatch $OUTPUT/scripts/slurmFLIRT.sh
-	#FNIRT
-	cat $OUTPUT/scripts/slurmBET.sh | head -n 7				> $OUTPUT/scripts/slurmFNIRT.sh
-	for image in ${anatPATHS[@]}; do
-		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
-		echo "srun -N 1 -n 1 $FSLDIR/bin/fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10" >> $OUTPUT/scripts/slurmFNIRT.sh
-		echo "wait"											>> $OUTPUT/scripts/slurmFNIRT.sh
-	done
-	sbatch $OUTPUT/scripts/slurmFNIRT.sh
+	[[ ! -d $OUTPUT/scripts/slurmLogs ]] && mkdir $OUTPUT/scripts/slurmLogs
+	SUBJS=${#anatPATHS[@]}
+	CPUS=$(($NTASKS*$NODES))
+
+	echo '#!/bin/bash'														>  $OUTPUT/scripts/slurm_preproc_wf.sh
+	echo \#SBATCH --partition=$PART		 									>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	echo \#SBATCH --cpus-per-task=1			 								>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	echo \#SBATCH --time=$TIME												>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	echo \#SBATCH --array=0-"$SUBJS"%$CPUS									>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	echo \#SBATCH --output=$OUTPUT/scripts/slurmLogs/preproc_wf_%A_%4a.log	>> $OUTPUT/scripts/slurm_preproc_wf.sh		
+	echo -e "\n"															>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	# Create array to reference for anatomical inputs, output directory, and subject
+	echo 'anatArray=(); for image in $(cat $OUTPUT/scripts/image_paths.txt); do anatArray+=($image); done'	>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	echo 'outArray=(); idArray=(); for subjDir in $(ls -d1 $OUTPUT/sub-*); do out=$(echo $subjDir | sed "s/\/\//\//"); outArray+=($out); id=$(echo $subjDir | sed "s/\/\//\//" | sed "s/.*\///"); idArray+=($id); done' >> $OUTPUT/scripts/slurm_preproc_wf.sh
+
+	# Create workflow, then export it to be accessed from sbatch
+	preproc_wf() {
+		# Brain extraction
+		$FSLDIR/bin/bet $1 $2/"$3"_T1w_brain -R
+		wait
+		# Linear registration on brain extracted T1w
+		$FSLDIR/bin/flirt -in $2/"$3"_T1w_brain -ref $FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz -out $2/native2std_lin -omat $2/native2std_lin.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear
+		wait
+		# Non-linear registration on whole T1w.		
+		$FSLDIR/bin/fnirt --iout=$2/native2std_nonlin_head --in=$1 --aff=$2/native2std_lin.mat --cout=$2/native2std_nonlin_warp --iout=$2/native2std_nonlin --jout=$2/native2native_nonlin_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask --warpres=10,10,10
+		wait
+		# Apply above transformation to brain extracted image.	
+		$FSLDIR/bin/applywarp -i $1 -r $FSLDIR/data/standard/MNI152_T1_2mm_brain -o $2/native2std_nonlin_brain -w $2/native2std_nonlin_warp
+		wait		
+		# Inverse the warp field for standard to native space transformations		
+		$FSLDIR/bin/invwarp --ref=$2/"$3"_T1w_brain --warp=$2/native2std_nonlin_warp --out=$2/native2std_nonlin_warp_inv			
+		wait		
+		# Warp brain+CSF mask into native space
+		$FSLDIR/bin/applywarp -i $baseDir/masks/mask_2mm.nii.gz -o $2/mask_native -r $2/"$3"_T1w_brain --warp=$2/native2std_nonlin_warp_inv		
+		wait		
+		# Warp native space mask into linear space		
+		$FSLDIR/bin/applywarp -i $2/mask_native -r $2/native2std_lin.nii.gz --premat=$2/native2std.mat -o $2/mask_lin
+		wait
+		# Linear image masking
+		$FSLDIR/bin/fslmaths $2/mask_lin -bin $2/mask_lin
+		wait
+		$FSLDIR/bin/fslmaths $2/native2std_lin.nii.gz -mas $2/mask_lin $2/native2std_lin_masked
+		wait
+		
+		# Run py script on linear image
+		
+	}
+	export -f preproc_wf
+	export OUTPUT
+	echo 'preproc_wf ${anatArray[SLURM_ARRAY_TASK_ID]} ${outArray[SLURM_ARRAY_TASK_ID]} ${idArray[SLURM_ARRAY_TASK_ID]}'	>> $OUTPUT/scripts/slurm_preproc_wf.sh
+	sed -i "0,/\/\//s//\//" $OUTPUT/scripts/slurm_preproc_wf.sh
+	sbatch $OUTPUT/scripts/slurm_preproc_wf.sh	
+	
 # GNU Parallel
 elif [[ -n $NCPUS && -z $SLURM ]]; then
 	for image in ${anatPATHS[@]}; do
 		subj=$(echo $image | sed "s/.*sub/sub/" | sed "s/_.*//")
-		echo "$FSLDIR/bin/bet $image -R" >> $OUTPUT/runBet 
-		echo "$FSLDIR/bin/flirt -in "$image"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2standard -omat $OUTPUT/$subj/native2standard.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear" >> $OUTPUT/scripts/runFLIRT
-		echo "fnirt --iout=$OUTPUT/$subj/native2standard_nonlin --in=/$OUTPUT/$subj/*_brain.nii.gz --aff=$OUTPUT/$subj/native2standard.mat --cout=$OUTPUT/$subj/native2standard_warp --iout=$OUTPUT/$subj/native2standard_nonlin --jout=/$OUTPUT/$subj/native2native_jac --config=T1_2_MNI152_2mm --ref=$FSLDIR/data/standard/MNI152_T1_2mm_brain.nii.gz --refmask=$FSLDIR/data/standard/MNI152_T1_2mm_brain_mask_dil --warpres=10,10,10" >> $OUTPUT/scripts/runFNIRT	
+		T1w=$(echo $image | sed "s/.*sub/sub/" | sed "s/\.nii//g")
+		echo "$FSLDIR/bin/bet $image $OUTPUT/$subj/"$T1w"_brain -R &" 	>> $OUTPUT/scripts/gnuBET
+		echo "$FSLDIR/bin/flirt -in $OUTPUT/$subj/"$T1w"_brain -ref $FSLDIR/data/standard/MNI152_T1_1mm_brain.nii.gz -out $OUTPUT/$subj/native2std -omat $OUTPUT/$subj/native2std.mat -cost corratio -dof 12 -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -interp trilinear &" >> $OUTPUT/scripts/gnuFLIRT
+		echo "$FSLDIR/bin/convert_xfm -omat $OUTPUT/$subj/native2std_inv.mat -inverse $OUTPUT/$subj/native2std.mat &"	>> $OUTPUT/scripts/gnuTransXFM
+		echo "$FSLDIR/bin/flirt -in masks/mask.nii.gz -ref $T1w -out $OUTPUT/$subj/mask_native -applyxfm -init $OUTPUT/$subj/native2std_inv.mat &"	>> $OUTPUT/scripts/gnuTransFLIRT
+		echo "$FSLDIR/bin/fslmaths $OUTPUT/$subj/mask_native.nii.gz -bin $OUTPUT/$subj/mask_native.nii.gz &"	>> $OUTPUT/scripts/gnuTransMATHS
+		echo "$FSLDIR/bin/fslmaths $OUTPUT/$subj/native2std.nii.gz -mas $OUTPUT/$subj/mask_native $OUTPUT/$subj/native2std_masked &" >> $OUTPUT/scripts/gnuTransMATHS2	
 	done
-	baseDIR=$(echo $0 | sed "s#/.*#/#")
-	cat $OUTPUT/scripts/runBET | $baseDIR/parallel -j $NCPUS
-	cat $OUTPUT/scripts/runFLIRT | $baseDIR/parallel -j $NCPUS
-	cat $OUTPUT/scripts/runFNIRT | $baseDIR/parallel -j $NCPUS
+	
+	cat $OUTPUT/scripts/gnuBET | ./parallel -j $NCPUS
+	cat $OUTPUT/scripts/gnuFLIRT | ./parallel -j $NCPUS
+	cat $OUTPUT/scripts/gnuTransXFM | ./parallel -j $NCPUS
+	cat $OUTPUT/scripts/gnuTransFLIRT | ./parallel -j $NCPUS
+	cat $OUTPUT/scripts/gnuTransMATHS | ./parallel -j $NCPUS
+	cat $OUTPUT/scripts/gnuTransMATHS2 | ./parallel -j $NCPUS
 fi
-wait
+
+
+## Need to figure out how to tie in req packages in repo with needing to source env
+#source ~/env_3.6/bin/activate
+
+#IMG=$OUTPUT/$subj/native2std_nonlin.nii.gz
+
+#./findPathology.py $IMG $THR $CLUSTER 
 
 ## Call python script here ##
-# 1) Will need to adjust python script to pull images from $OUTPUT/$subj/native2standard_nonlin
+# 1) Will need to adjust python script to pull images from $OUTPUT/$subj/native2std_nonlin
 # 2) Arguments set in this script can carry over to findPathology.py
 #    Ex: python3.6 findPathology.py $THR
 #  		 Then in findPathology.py $THR become sys.argv[1]
