@@ -1,3 +1,0 @@
-numpy>=1.16.3
-nibabel>=2.4.0
-scipy>=1.2.1
