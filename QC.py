@@ -145,11 +145,11 @@ if len(cleaned_clusters) > 0:
     # Save nifti
     if len(centers) > 0:
         out_img = nib.Nifti1Image(mask4D, img.affine, img.header)
-        out_path = out_dir+'4dClusters.nii.gz'
-        nib.save(out_img, out_path)
-        # Save .tsv file
         voxel_str = str(voxel_std)
         clust_str = str(clust_size)
+        out_path = out_dir+'4dClusters_'+'vox'+voxel_str+'_clust'+clust_str+'.nii.gz'
+        nib.save(out_img, out_path)
+        # Save .tsv file
         tsv = out_dir+'4dClusters_'+'vox'+voxel_str+'_clust'+clust_str+'.tsv'
         header = str("Cluster_Index\tN_Voxels\tCenter_Coordinate")
         print(header, file=open(tsv, "w"))
