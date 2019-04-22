@@ -3,8 +3,8 @@
 Flags voxels in anatomical T1w images below a defined intensity and cluster threshold to flag potentiall issues in anatomical images. Useful prior to running freesurfer.
 
 Output:
-	1. 4dClusters*.nii.gz in linear space (overlay with sub-*/native2std_lin_masked.nii.gz).
-	2. 4dClusters*.tsv
+  1. 4dClusters*.nii.gz in linear space (overlay with sub-*/native2std_lin_masked.nii.gz).
+  2. 4dClusters*.tsv
 
 Preprocessing Workflow:
   1. Brain Extraction: FSL's BET
@@ -21,6 +21,7 @@ Detection Workflow:
   5. Ignore clusters whose center of mass coordinates have an intensity of 0.
 
 Processing Options:
-  1. Serial (1 CPU)
-  2. SLURM
-  3. GNU Parallel
+  1. SLURM
+  
+To-DO:
+  1. Test serial and gnu parallel options
