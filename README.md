@@ -21,6 +21,7 @@ Detection Workflow:
   5. Ignore clusters whose center of mass coordinates have an intensity of 0.
 
 Processing Options:
-  1. Serial (1 CPU)
-  2. SLURM
-  3. GNU Parallel
+  1. SLURM
+  
+To-DO:
+  1. Test serial and gnu parallel options
