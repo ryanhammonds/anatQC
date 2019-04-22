@@ -1,14 +1,5 @@
 #!/bin/bash
 
-## TO-DO ##
-# 1) Add check that verify BIDS dir is properly structured and named.
-# 2) Call pathology.py in this script - look at the bootom of this script for what's next to do.
-# 3) This script assumes pathology.py parses anatomical regions one by one to look for low intensity clusters in comparison
-#	 to the mean of the region the cluster is in. This will be an issue if there is a hole that spans an entire region and
-#	 the mean of that region becomes very low. Maybe the mean value to compare voxels too (within single region) should come
-#  	 from a mean of region across all participants.	There are other ways to solve this though. Do what you think is most efficient.
-#  	 I haven't made it to your findPathology.py script yet so I'm not sure what approach you've decided on.
-
 usage() {
   cat << EOF >&2
 
@@ -365,21 +356,10 @@ elif [[ -n $NCPUS && -z $SLURM ]]; then
 	cat $OUTPUT/scripts/gnuTransMATHS2 | ./parallel -j $NCPUS
 fi
 
-for clust_img in $(ls -1 $OUTPUT/sub*/4d*.nii.gz); do 
+for clust_img in $(ls -1 $OUTPUT/sub*/4d*.nii.gz); do
   id=$(echo $clust_img | head -n 1 | sed "s/.*sub/sub/" | sed "s#/.*##")
   echo $id >> $OUTPUT/flagged_ids.txt
 done
 
-## Need to figure out how to tie in req packages in repo with needing to source env
-#source ~/env_3.6/bin/activate
-
-#IMG=$OUTPUT/$subj/native2std_nonlin.nii.gz
-
-#./findPathology.py $IMG $THR $CLUSTER
-
-## Call python script here ##
-# 1) Will need to adjust python script to pull images from $OUTPUT/$subj/native2std_nonlin
-# 2) Arguments set in this script can carry over to findPathology.py
-#    Ex: python3.6 findPathology.py $THR
-#  		 Then in findPathology.py $THR become sys.argv[1]
-#		 Note: global python3.6 will not have packages you need (nibabel, etc). You will need to change it to environment python3
+# TO-DO
+# Update GNU parallel and serial processing options
