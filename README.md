@@ -11,12 +11,12 @@ Preprocessing Workflow:
   2. Registration: FSL's FLIRT and FNIRT
   3. Masking: FSL's applywarp standardbrain+csf mask to linear space. The linear transfomred masked image will be used in detection.
  
-!If thse above steps produce abnormal results, the detection workflow will flag incorrectly!
+If these above steps produce abnormal results, the detection workflow will flag incorrectly!
  
 Detection Workflow:
   1. Flag voxels below --thr standard deviations.
-	2. Determine cluster via recursion.
-	3. Ignore voxels adjacent to intensity of zero (outside mask).
+  2. Determine cluster via recursion.
+  3. Ignore voxels adjacent to intensity of zero (outside mask).
   4. Determine cluster and remove those below --cluster threshold.
   5. Ignore clusters whose center of mass coordinates have an intensity of 0.
 
